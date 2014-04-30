@@ -1,6 +1,7 @@
 require 'twilio-ruby'
 require 'sinatra'
 require 'yaml'
+require 'json'
 
 class CurrentCall
   # Store current call id in tmp file. Allows for app_reloading with `rerun`
@@ -23,11 +24,25 @@ class CurrentCall
 
 end
 
-class AgentCall < CurrentCall
-  def self.path
-    "tmp/agent_call"
+class AgentCall
+  def initialize(agent_name)
+    @agent_name = agent_name
+  end
+
+  def sid
+    File.open(path, "r").read.chomp if File.exists?(path)
+  end
+
+  def sid=(call_sid)
+    File.open(path, 'w') {|f| f.write(call_sid) }
+  end
+
+  def path
+    "tmp/agent_calls/#{@agent_name}"
   end
 end
+
+AgentCalls = {}
 
 class App < Sinatra::Base
 
@@ -52,18 +67,21 @@ class App < Sinatra::Base
   end
 
   get '/agent_client' do
+    agent_name = params[:name]
     capability = Twilio::Util::Capability.new settings.account_sid, settings.auth_token
 
-    capability.allow_client_incoming 'agent_client'
+    capability.allow_client_incoming agent_name
     token = capability.generate
-    erb :index, :locals => {:token => token}
+    erb :index, :locals => { :token => token, :agent_name => agent_name }
   end
 
   post '/voice' do
     CurrentCall.sid = params["CallSid"]
 
     response = Twilio::TwiML::Response.new do |r|
-      r.Enqueue(settings.queue_name, "waitUrl" => url("/queue_wait"))
+      r.Dial do |d|
+        d.Conference "c1", :waitUrl => 'http://twimlets.com/holdmusic?Bucket=com.twilio.music.electronica', :record => "record-from-start"
+      end
     end
     response.text
   end
@@ -126,31 +144,46 @@ class App < Sinatra::Base
     end
   end
 
+  post '/hangup/:agent_name' do
+    agent_name = params[:agent_name]
+    call = twilio_client.account.calls.get(AgentCalls[agent_name].sid)
+    call.hangup
+  end
+
   ## CONFERENCE
 
   post '/put_caller_in_conference' do
     call = twilio_client.account.calls.get(CurrentCall.sid)
-    call.update(:url => url("go_to_conference"), :method => "POST")
+    call.update(:url => url("go_to_conference/record-from-start"), :method => "POST")
   end
 
-  post '/put_agent_in_conference' do
-    call = twilio_client.account.calls.get(AgentCall.sid)
-    call.update(:url => url("go_to_conference"), :method => "POST")
+  post '/put_agent_in_conference/:agent_name' do
+    agent_name = params[:agent_name]
+    call = twilio_client.account.calls.get(AgentCalls[agent_name].sid)
+    call.update(:url => url("go_to_conference/do-not-record"), :method => "POST")
   end
 
   post '/dial_agent' do
+    raise JSON.parse(request.body.read.inspect)
+    conference_name = params[:conference_name]
+    agent_name = params[:agent_name]
+
     agent_call = twilio_client.account.calls.create(
       :from => settings.phone_number,
-      :to => "client:agent_client",
-      :url => url('go_to_conference') # direct call to conference immediately
+      :to => "client:#{agent_name}",
+      :url => url("go_to_conference/#{conference_name}") # direct call to conference immediately
     )
 
-    AgentCall.sid = agent_call.sid
+    ac = AgentCall.new(agent_name)
+    ac.sid = agent_call.sid
+    AgentCalls[agent_name] = ac
   end
 
-  post '/go_to_conference' do
+  post '/go_to_conference/:record' do
+    record = params[:record]
+
     response = Twilio::TwiML::Response.new do |r|
-      r.Dial do |d|
+      r.Dial :record => record do |d|
         d.Conference settings.conference_name, :waitUrl => 'http://twimlets.com/holdmusic?Bucket=com.twilio.music.electronica'
       end
     end
@@ -159,8 +192,10 @@ class App < Sinatra::Base
 
   ### CALL HOLD
 
-  post '/put_agent_on_hold' do
-    agent_call = twilio_client.account.calls.get(AgentCall.sid)
+  post '/put_agent_on_hold/:agent_name' do
+    agent_name = params[:agent_name]
+
+    agent_call = twilio_client.account.calls.get(AgentCalls[agent_name].sid)
     agent_call.update(:url => url("hold/agent"), :method => "POST")
   end
 

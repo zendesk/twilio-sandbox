@@ -62,7 +62,7 @@
 
     /* Let us know when the client is ready. */
     Twilio.Device.ready(function (device) {
-      $("#log").text("Ready");
+      $("#log").text("Ready as '<%= agent_name %>'")
     });
 
     /* Report any errors on the screen */
@@ -106,7 +106,7 @@
       <form class="form-signin">
         <h2 class="form-signin-heading">Sample Voice application</h2>
         <div class="clearfix">
-          <button onclick="hangup();" class="btn btn-large btn-primary hangup" type="submit">Hangup</button>
+          <button onclick="hangup(); return false;" class="btn btn-large btn-primary hangup" type="submit">Hangup</button>
           <pre id="log">Loading...</pre>
         </div>
       </form>

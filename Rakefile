@@ -1,5 +1,6 @@
 require "bundler/setup"
 require "twilio-ruby"
+require 'yaml'
 
 task :config_twilio do
   twilio_config = YAML.load_file("twilio.yml")
