@@ -152,21 +152,25 @@ class App < Sinatra::Base
 
   ## CONFERENCE
 
-  post '/put_caller_in_conference' do
+  post '/put_caller_in_conference/:name' do
     call = twilio_client.account.calls.get(CurrentCall.sid)
-    call.update(:url => url("go_to_conference/record-from-start"), :method => "POST")
+    call.update(:url => url("go_to_conference/#{params[:name]}"), :method => "POST")
   end
 
-  post '/put_agent_in_conference/:agent_name' do
-    agent_name = params[:agent_name]
+  post '/put_agent_in_conference' do
+    params = JSON.parse(request.body.read)
+    conference_name = params["conference_name"]
+    agent_name = params["agent_name"]
     call = twilio_client.account.calls.get(AgentCalls[agent_name].sid)
-    call.update(:url => url("go_to_conference/do-not-record"), :method => "POST")
+    call.update(:url => url("go_to_conference/#{conference_name}"), :method => "POST")
   end
 
   post '/dial_agent' do
-    raise JSON.parse(request.body.read.inspect)
-    conference_name = params[:conference_name]
-    agent_name = params[:agent_name]
+    params = JSON.parse(request.body.read)
+    conference_name = params["conference_name"]
+    agent_name = params["agent_name"]
+    puts conference_name
+    puts agent_name
 
     agent_call = twilio_client.account.calls.create(
       :from => settings.phone_number,
@@ -179,12 +183,10 @@ class App < Sinatra::Base
     AgentCalls[agent_name] = ac
   end
 
-  post '/go_to_conference/:record' do
-    record = params[:record]
-
+  post '/go_to_conference/:name' do
     response = Twilio::TwiML::Response.new do |r|
-      r.Dial :record => record do |d|
-        d.Conference settings.conference_name, :waitUrl => 'http://twimlets.com/holdmusic?Bucket=com.twilio.music.electronica'
+      r.Dial do |d|
+        d.Conference params[:name], :record => "record-from-start", :waitUrl => 'http://twimlets.com/holdmusic?Bucket=com.twilio.music.electronica'
       end
     end
     response.text
